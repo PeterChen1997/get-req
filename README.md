@@ -34,6 +34,7 @@ pnpm dev
 | `OPENAI_API_KEY` | 是 | OpenAI API Key |
 | `OPENAI_MODEL` | 否 | 模型名称，默认 `gpt-4o` |
 | `NOTION_TOKEN` | 否 | Notion Integration Token（不配则降级为微信联系） |
-| `NOTION_PARENT_PAGE_ID` | 否 | Notion 父页面 ID。**需手动将该父页面设为 Public（Share to web）**，Notion API 不支持通过代码开启分享，子页面才能继承生成可公开访问的 `public_url`；否则用户收到的链接仅登录 Notion 账号后才能打开 |
+| `NOTION_PARENT_PAGE_ID` | 否 | 预览版页面的 Notion 父页面 ID。**需手动将该父页面设为 Public（Share to web）**，Notion API 不支持通过代码开启分享，子页面才能继承生成可公开访问的 `public_url`；否则用户收到的链接仅登录 Notion 账号后才能打开 |
+| `NOTION_PRIVATE_PARENT_PAGE_ID` | 否 | 完整版页面的 Notion 父页面 ID，**必须保持 Private（不分享）**，与 `NOTION_PARENT_PAGE_ID` 分开设置，避免完整版内容随公开父页面被外部访问 |
 | `OPERATOR_WECHAT` | 否 | 运营者微信号（Notion 失败时的降级联系方式） |
 | `ADMIN_SECRET` | 是 | 运营后台（`/admin` 及其 API）访问密钥，未配置时管理类接口一律拒绝访问 |

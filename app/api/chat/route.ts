@@ -81,7 +81,7 @@ export async function POST(req: Request) {
             .describe("分期交付与报价建议：推荐的交付里程碑与对应的工作量估算"),
         })),
         execute: async (doc) => {
-          if (existingReq) {
+          if (existingReq?.notion_url) {
             return {
               success: true,
               message: "需求文档已生成",
@@ -121,21 +121,33 @@ export async function POST(req: Request) {
           const dateStr = new Date().toLocaleDateString("zh-CN");
           const pageTitle = `需求文档 - ${submission.name} - ${dateStr}`;
 
-          // 完整版写入独立页面供运营者私有查阅（不公开分享），预览版写入独立页面供用户查看。
+          // 完整版写入 NOTION_PRIVATE_PARENT_PAGE_ID 下的独立页面（运营者私有查阅，不随公开父页面继承分享），
+          // 预览版写入 NOTION_PARENT_PAGE_ID 下的独立页面（供用户通过公开链接查看）。
           const [fullPageResult, previewPageResult] = await Promise.all([
-            createNotionPage(`${pageTitle}（完整版-内部）`, fullSections),
+            createNotionPage(`${pageTitle}（完整版-内部）`, fullSections, {
+              private: true,
+            }),
             createNotionPage(`${pageTitle}（预览版）`, previewSections),
           ]);
 
-          const requirementId = uuidv4();
-          db.createRequirement({
-            id: requirementId,
-            submissionId: submission.id,
-            previewContent,
-            fullContent,
-            notionUrl: previewPageResult?.url,
-            notionFullUrl: fullPageResult?.url,
-          });
+          // existingReq 存在但此前 Notion 创建失败（notion_url 为空）时，此处重试创建并回填记录，
+          // 而不是首次创建的场景才写 requirements 表，避免重复插入。
+          const requirementId = existingReq?.id ?? uuidv4();
+          if (existingReq) {
+            db.updateRequirementNotionUrls(requirementId, {
+              notionUrl: previewPageResult?.url,
+              notionFullUrl: fullPageResult?.url,
+            });
+          } else {
+            db.createRequirement({
+              id: requirementId,
+              submissionId: submission.id,
+              previewContent,
+              fullContent,
+              notionUrl: previewPageResult?.url,
+              notionFullUrl: fullPageResult?.url,
+            });
+          }
 
           if (previewPageResult) {
             return {

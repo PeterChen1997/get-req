@@ -83,9 +83,28 @@ export const db = {
     contactInfo: string;
     contactType: string;
     sessionToken: string;
-  }) {
+  }): { success: true } | { success: false; message: string } {
     const db = getDb();
     const insertSubmissionAndBumpCode = db.transaction(() => {
+      // 校验与 used_count+1 放在同一个 BEGIN IMMEDIATE 事务内（见下方 .immediate() 调用），
+      // 避免并发请求都读到旧的 used_count 而双双通过校验，超过 max_uses 限制。
+      const row = db
+        .prepare("SELECT used_count, max_uses, active FROM invite_codes WHERE code = ?")
+        .get(data.inviteCode) as
+        | { used_count: number; max_uses: number; active: number }
+        | undefined;
+
+      if (!row || !row.active || row.used_count >= row.max_uses) {
+        return {
+          success: false as const,
+          message: !row
+            ? "邀请码无效，请联系我获取新邀请码"
+            : !row.active
+              ? "邀请码已失效，请联系我获取新邀请码"
+              : "邀请码已使用满3次，请联系我获取新邀请码",
+        };
+      }
+
       db.prepare(
         "INSERT INTO submissions (id, invite_code, name, contact_info, contact_type, session_token) VALUES (?, ?, ?, ?, ?, ?)"
       ).run(
@@ -99,8 +118,11 @@ export const db = {
       db.prepare(
         "UPDATE invite_codes SET used_count = used_count + 1 WHERE code = ?"
       ).run(data.inviteCode);
+
+      return { success: true as const };
     });
-    insertSubmissionAndBumpCode();
+    // 用 BEGIN IMMEDIATE 立即获取写锁，避免多进程/多连接下并发请求同时读到同一 used_count 而双双通过校验。
+    return insertSubmissionAndBumpCode.immediate();
   },
 
   getSubmissionBySession(sessionToken: string) {
@@ -137,6 +159,16 @@ export const db = {
       data.notionUrl ?? null,
       data.notionFullUrl ?? null
     );
+  },
+
+  updateRequirementNotionUrls(
+    id: string,
+    data: { notionUrl?: string; notionFullUrl?: string }
+  ) {
+    const db = getDb();
+    db.prepare(
+      "UPDATE requirements SET notion_url = ?, notion_full_url = ? WHERE id = ?"
+    ).run(data.notionUrl ?? null, data.notionFullUrl ?? null, id);
   },
 
   getRequirement(id: string) {

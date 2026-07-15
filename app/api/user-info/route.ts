@@ -14,18 +14,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "无效的联系方式类型" }, { status: 400 });
   }
 
-  const verification = db.verifyInviteCode(inviteCode);
-  if (!verification.valid) {
-    return NextResponse.json(
-      { error: verification.message },
-      { status: 403 }
-    );
-  }
-
   const submissionId = uuidv4();
   const sessionToken = uuidv4();
 
-  db.createSubmission({
+  const result = db.createSubmission({
     id: submissionId,
     inviteCode,
     name: name.trim(),
@@ -33,6 +25,10 @@ export async function POST(req: Request) {
     contactType,
     sessionToken,
   });
+
+  if (!result.success) {
+    return NextResponse.json({ error: result.message }, { status: 403 });
+  }
 
   return NextResponse.json({ sessionToken });
 }

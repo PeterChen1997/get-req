@@ -53,10 +53,13 @@ function sectionToBlocks(
 
 export async function createNotionPage(
   title: string,
-  sections: { title: string; content: string }[]
+  sections: { title: string; content: string }[],
+  options?: { private?: boolean }
 ): Promise<{ url: string } | null> {
   const client = getClient();
-  const parentPageId = process.env.NOTION_PARENT_PAGE_ID;
+  const parentPageId = options?.private
+    ? process.env.NOTION_PRIVATE_PARENT_PAGE_ID
+    : process.env.NOTION_PARENT_PAGE_ID;
 
   if (!client || !parentPageId) return null;
 
@@ -88,8 +91,9 @@ export async function createNotionPage(
 
     // Notion API 不支持通过代码开启「Share to web」，public_url 仅在父页面
     // 已被手动设为 Public 分享时才会被继承并返回；否则需要 Notion 账号登录才能访问 url。
+    // 完整版页面创建在私有父页面下，即使意外继承了公开分享也坚持返回内部 url，避免泄露。
     const { url, public_url } = page as { url: string; public_url: string | null };
-    return { url: public_url || url };
+    return { url: options?.private ? url : public_url || url };
   } catch (err) {
     console.error("Notion page creation failed:", err);
     return null;
