@@ -33,7 +33,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const model = openai(process.env.OPENAI_MODEL || "gpt-4o");
+  // 使用 chat completions 接口（.chat），兼容自建/中转的 OpenAI 兼容网关（仅支持
+  // /v1/chat/completions，不支持默认 provider 走的 /v1/responses）。
+  const model = openai.chat(process.env.OPENAI_MODEL || "gpt-4o");
 
   const result = streamText({
     model,
