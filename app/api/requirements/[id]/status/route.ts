@@ -17,6 +17,13 @@ export async function PATCH(
     return NextResponse.json({ error: "需求不存在" }, { status: 404 });
   }
 
+  if (requirement.status !== "pending_review") {
+    return NextResponse.json(
+      { error: "该需求已处于终态，无法再次变更状态" },
+      { status: 409 }
+    );
+  }
+
   db.updateRequirementStatus(id, status);
   return NextResponse.json({ ok: true });
 }
