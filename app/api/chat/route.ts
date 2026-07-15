@@ -33,8 +33,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const existingReq = db.getRequirementBySubmission(submission.id);
-
   const model = openai(process.env.OPENAI_MODEL || "gpt-4o");
 
   const result = streamText({
@@ -81,7 +79,11 @@ export async function POST(req: Request) {
             .describe("分期交付与报价建议：推荐的交付里程碑与对应的工作量估算"),
         })),
         execute: async (doc) => {
-          if (existingReq?.notion_url) {
+          // 每次调用都重新查询最新快照，避免同一次流式请求内 AI 多次调用本工具
+          // （stopWhen: isStepCount(3)）时仍看到请求入口处的旧快照而重复创建记录。
+          const existingReq = db.getRequirementBySubmission(submission.id);
+
+          if (existingReq?.notion_url && existingReq?.notion_full_url) {
             return {
               success: true,
               message: "需求文档已生成",
@@ -123,11 +125,16 @@ export async function POST(req: Request) {
 
           // 完整版写入 NOTION_PRIVATE_PARENT_PAGE_ID 下的独立页面（运营者私有查阅，不随公开父页面继承分享），
           // 预览版写入 NOTION_PARENT_PAGE_ID 下的独立页面（供用户通过公开链接查看）。
+          // 已成功创建的一侧不重复创建，仅重试此前失败（url 为空）的一侧。
           const [fullPageResult, previewPageResult] = await Promise.all([
-            createNotionPage(`${pageTitle}（完整版-内部）`, fullSections, {
-              private: true,
-            }),
-            createNotionPage(`${pageTitle}（预览版）`, previewSections),
+            existingReq?.notion_full_url
+              ? Promise.resolve({ url: existingReq.notion_full_url })
+              : createNotionPage(`${pageTitle}（完整版-内部）`, fullSections, {
+                  private: true,
+                }),
+            existingReq?.notion_url
+              ? Promise.resolve({ url: existingReq.notion_url })
+              : createNotionPage(`${pageTitle}（预览版）`, previewSections),
           ]);
 
           // existingReq 存在但此前 Notion 创建失败（notion_url 为空）时，此处重试创建并回填记录，
