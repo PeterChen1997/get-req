@@ -86,7 +86,10 @@ export async function createNotionPage(
       });
     }
 
-    return { url: (page as { url: string }).url };
+    // Notion API 不支持通过代码开启「Share to web」，public_url 仅在父页面
+    // 已被手动设为 Public 分享时才会被继承并返回；否则需要 Notion 账号登录才能访问 url。
+    const { url, public_url } = page as { url: string; public_url: string | null };
+    return { url: public_url || url };
   } catch (err) {
     console.error("Notion page creation failed:", err);
     return null;

@@ -43,6 +43,7 @@ function getDb(): Database.Database {
       full_content TEXT,
       status TEXT DEFAULT 'pending_review',
       notion_url TEXT,
+      notion_full_url TEXT,
       accepted_at TEXT,
       commitment_terms TEXT,
       created_at TEXT DEFAULT (datetime('now')),
@@ -84,19 +85,22 @@ export const db = {
     sessionToken: string;
   }) {
     const db = getDb();
-    db.prepare(
-      "INSERT INTO submissions (id, invite_code, name, contact_info, contact_type, session_token) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run(
-      data.id,
-      data.inviteCode,
-      data.name,
-      data.contactInfo,
-      data.contactType,
-      data.sessionToken
-    );
-    db.prepare(
-      "UPDATE invite_codes SET used_count = used_count + 1 WHERE code = ?"
-    ).run(data.inviteCode);
+    const insertSubmissionAndBumpCode = db.transaction(() => {
+      db.prepare(
+        "INSERT INTO submissions (id, invite_code, name, contact_info, contact_type, session_token) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(
+        data.id,
+        data.inviteCode,
+        data.name,
+        data.contactInfo,
+        data.contactType,
+        data.sessionToken
+      );
+      db.prepare(
+        "UPDATE invite_codes SET used_count = used_count + 1 WHERE code = ?"
+      ).run(data.inviteCode);
+    });
+    insertSubmissionAndBumpCode();
   },
 
   getSubmissionBySession(sessionToken: string) {
@@ -120,16 +124,18 @@ export const db = {
     previewContent: string;
     fullContent: string;
     notionUrl?: string;
+    notionFullUrl?: string;
   }) {
     const db = getDb();
     db.prepare(
-      "INSERT INTO requirements (id, submission_id, preview_content, full_content, notion_url) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO requirements (id, submission_id, preview_content, full_content, notion_url, notion_full_url) VALUES (?, ?, ?, ?, ?, ?)"
     ).run(
       data.id,
       data.submissionId,
       data.previewContent,
       data.fullContent,
-      data.notionUrl ?? null
+      data.notionUrl ?? null,
+      data.notionFullUrl ?? null
     );
   },
 
@@ -142,6 +148,7 @@ export const db = {
       full_content: string;
       status: string;
       notion_url: string | null;
+      notion_full_url: string | null;
       accepted_at: string | null;
       commitment_terms: string | null;
       created_at: string;
@@ -159,6 +166,7 @@ export const db = {
       full_content: string;
       status: string;
       notion_url: string | null;
+      notion_full_url: string | null;
       accepted_at: string | null;
       commitment_terms: string | null;
       created_at: string;
@@ -181,6 +189,7 @@ export const db = {
       full_content: string;
       status: string;
       notion_url: string | null;
+      notion_full_url: string | null;
       accepted_at: string | null;
       commitment_terms: string | null;
       created_at: string;

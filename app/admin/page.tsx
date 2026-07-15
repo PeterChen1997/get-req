@@ -9,6 +9,7 @@ type Requirement = {
   full_content: string;
   status: string;
   notion_url: string | null;
+  notion_full_url: string | null;
   accepted_at: string | null;
   commitment_terms: string | null;
   created_at: string;
@@ -27,35 +28,70 @@ type InviteCode = {
   created_at: string;
 };
 
+const ADMIN_SECRET_STORAGE_KEY = "admin_secret";
+
 export default function AdminPage() {
   const [tab, setTab] = useState<"requirements" | "invites">("requirements");
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showFull, setShowFull] = useState<string | null>(null);
-
-  const loadRequirements = useCallback(async () => {
-    const res = await fetch("/api/requirements");
-    setRequirements(await res.json());
-  }, []);
-
-  const loadInviteCodes = useCallback(async () => {
-    const res = await fetch("/api/invite/manage");
-    setInviteCodes(await res.json());
-  }, []);
+  const [adminSecret, setAdminSecret] = useState<string | null>(null);
+  const [secretInput, setSecretInput] = useState("");
+  const [authError, setAuthError] = useState("");
 
   useEffect(() => {
+    setAdminSecret(sessionStorage.getItem(ADMIN_SECRET_STORAGE_KEY));
+  }, []);
+
+  const authedFetch = useCallback(
+    async (input: string, init?: RequestInit) => {
+      const res = await fetch(input, {
+        ...init,
+        headers: { ...init?.headers, "x-admin-secret": adminSecret || "" },
+      });
+      if (res.status === 401) {
+        sessionStorage.removeItem(ADMIN_SECRET_STORAGE_KEY);
+        setAdminSecret(null);
+        setAuthError("密钥无效或已过期，请重新输入");
+      }
+      return res;
+    },
+    [adminSecret]
+  );
+
+  const loadRequirements = useCallback(async () => {
+    const res = await authedFetch("/api/requirements");
+    if (res.ok) setRequirements(await res.json());
+  }, [authedFetch]);
+
+  const loadInviteCodes = useCallback(async () => {
+    const res = await authedFetch("/api/invite/manage");
+    if (res.ok) setInviteCodes(await res.json());
+  }, [authedFetch]);
+
+  useEffect(() => {
+    if (!adminSecret) return;
     loadRequirements();
     loadInviteCodes();
-  }, [loadRequirements, loadInviteCodes]);
+  }, [adminSecret, loadRequirements, loadInviteCodes]);
+
+  function handleSecretSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!secretInput.trim()) return;
+    sessionStorage.setItem(ADMIN_SECRET_STORAGE_KEY, secretInput.trim());
+    setAdminSecret(secretInput.trim());
+    setAuthError("");
+    setSecretInput("");
+  }
 
   async function createInviteCode() {
-    await fetch("/api/invite/manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+    await authedFetch("/api/invite/manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
     loadInviteCodes();
   }
 
   async function revokeCode(code: string) {
-    await fetch("/api/invite/manage", {
+    await authedFetch("/api/invite/manage", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
@@ -64,7 +100,7 @@ export default function AdminPage() {
   }
 
   async function updateStatus(id: string, status: "accepted" | "rejected") {
-    await fetch(`/api/requirements/${id}/status`, {
+    await authedFetch(`/api/requirements/${id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -83,6 +119,31 @@ export default function AdminPage() {
     accepted: "bg-green-100 text-green-800",
     rejected: "bg-red-100 text-red-800",
   };
+
+  if (!adminSecret) {
+    return (
+      <div className="mx-auto max-w-sm px-4 py-16">
+        <h1 className="text-xl font-semibold mb-4">运营管理后台登录</h1>
+        <form onSubmit={handleSecretSubmit} className="flex flex-col gap-3">
+          <input
+            type="password"
+            value={secretInput}
+            onChange={(e) => setSecretInput(e.target.value)}
+            placeholder="请输入管理密钥"
+            autoFocus
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+          {authError && <p className="text-sm text-destructive">{authError}</p>}
+          <button
+            type="submit"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            进入
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
@@ -127,8 +188,13 @@ export default function AdminPage() {
                     </p>
                   )}
                   {req.notion_url && (
-                    <a href={req.notion_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1 inline-block">
-                      Notion 文档
+                    <a href={req.notion_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1 mr-3 inline-block">
+                      Notion 预览版
+                    </a>
+                  )}
+                  {req.notion_full_url && (
+                    <a href={req.notion_full_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1 inline-block">
+                      Notion 完整版（内部）
                     </a>
                   )}
                 </div>

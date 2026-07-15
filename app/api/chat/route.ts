@@ -26,9 +26,14 @@ export async function POST(req: Request) {
     ? db.getSubmissionBySession(sessionToken)
     : undefined;
 
-  const existingReq = submission
-    ? db.getRequirementBySubmission(submission.id)
-    : undefined;
+  if (!submission) {
+    return new Response(
+      JSON.stringify({ error: "会话无效，请重新开始" }),
+      { status: 401, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const existingReq = db.getRequirementBySubmission(submission.id);
 
   const model = openai(process.env.OPENAI_MODEL || "gpt-4o");
 
@@ -76,10 +81,6 @@ export async function POST(req: Request) {
             .describe("分期交付与报价建议：推荐的交付里程碑与对应的工作量估算"),
         })),
         execute: async (doc) => {
-          if (!submission) {
-            return { success: false, message: "会话无效，请重新开始" };
-          }
-
           if (existingReq) {
             return {
               success: true,
@@ -120,10 +121,11 @@ export async function POST(req: Request) {
           const dateStr = new Date().toLocaleDateString("zh-CN");
           const pageTitle = `需求文档 - ${submission.name} - ${dateStr}`;
 
-          const notionResult = await createNotionPage(
-            pageTitle,
-            previewSections
-          );
+          // 完整版写入独立页面供运营者私有查阅（不公开分享），预览版写入独立页面供用户查看。
+          const [fullPageResult, previewPageResult] = await Promise.all([
+            createNotionPage(`${pageTitle}（完整版-内部）`, fullSections),
+            createNotionPage(`${pageTitle}（预览版）`, previewSections),
+          ]);
 
           const requirementId = uuidv4();
           db.createRequirement({
@@ -131,14 +133,15 @@ export async function POST(req: Request) {
             submissionId: submission.id,
             previewContent,
             fullContent,
-            notionUrl: notionResult?.url,
+            notionUrl: previewPageResult?.url,
+            notionFullUrl: fullPageResult?.url,
           });
 
-          if (notionResult) {
+          if (previewPageResult) {
             return {
               success: true,
               message: "需求文档已生成并保存到 Notion",
-              notionUrl: notionResult.url,
+              notionUrl: previewPageResult.url,
               requirementId,
             };
           }

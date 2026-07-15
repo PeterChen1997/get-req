@@ -32,7 +32,8 @@ export function UserInfoForm({ inviteCode }: { inviteCode: string }) {
 
       const data = await res.json();
       if (data.sessionToken) {
-        router.push(`/chat?session=${data.sessionToken}`);
+        sessionStorage.setItem("session_token", data.sessionToken);
+        router.push("/chat");
       } else {
         setError(data.error || "提交失败，请重试");
       }

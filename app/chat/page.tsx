@@ -1,12 +1,26 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { useEffect, useState } from "react";
 import { ChatView } from "@/components/chat-view";
 
-function ChatContent() {
-  const searchParams = useSearchParams();
-  const session = searchParams.get("session");
+const SESSION_STORAGE_KEY = "session_token";
+
+export default function ChatPage() {
+  const [session, setSession] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    setSession(sessionStorage.getItem(SESSION_STORAGE_KEY));
+    setChecked(true);
+  }, []);
+
+  if (!checked) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-muted-foreground">加载中...</p>
+      </div>
+    );
+  }
 
   if (!session) {
     return (
@@ -25,18 +39,4 @@ function ChatContent() {
   }
 
   return <ChatView sessionToken={session} />;
-}
-
-export default function ChatPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-muted-foreground">加载中...</p>
-        </div>
-      }
-    >
-      <ChatContent />
-    </Suspense>
-  );
 }
