@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+import Link from "next/link";
 import { ChatView } from "@/components/chat-view";
 
 const SESSION_STORAGE_KEY = "session_token";
 
+// sessionStorage 只读一次、无变更通知，订阅为空实现
+const noopSubscribe = () => () => {};
+
 export default function ChatPage() {
-  const [session, setSession] = useState<string | null>(null);
-  const [checked, setChecked] = useState(false);
+  // 服务端渲染时返回 undefined（加载中），客户端读取 sessionStorage
+  const session = useSyncExternalStore(
+    noopSubscribe,
+    () => sessionStorage.getItem(SESSION_STORAGE_KEY),
+    () => undefined
+  );
 
-  useEffect(() => {
-    setSession(sessionStorage.getItem(SESSION_STORAGE_KEY));
-    setChecked(true);
-  }, []);
-
-  if (!checked) {
+  if (session === undefined) {
     return (
       <div className="flex flex-1 items-center justify-center">
         <p className="text-muted-foreground">加载中...</p>
@@ -30,9 +33,9 @@ export default function ChatPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             请从首页开始，输入邀请码后进入聊天
           </p>
-          <a href="/" className="mt-4 inline-block text-sm text-primary hover:underline">
+          <Link href="/" className="mt-4 inline-block text-sm text-primary hover:underline">
             返回首页
-          </a>
+          </Link>
         </div>
       </div>
     );

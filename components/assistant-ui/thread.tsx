@@ -21,6 +21,7 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/tool-group";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +35,7 @@ import {
   groupPartByType,
   MessagePrimitive,
   SuggestionPrimitive,
+  type ThreadMessage as AuiThreadMessage,
   ThreadPrimitive,
   type ToolCallMessagePartComponent,
   useAuiState,
@@ -41,20 +43,34 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CalendarClockIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CoffeeIcon,
   CopyIcon,
   DownloadIcon,
+  DumbbellIcon,
+  ExternalLinkIcon,
+  FileTextIcon,
+  GraduationCapIcon,
+  HomeIcon,
+  type LucideIcon,
+  MessageCircleIcon,
   MicIcon,
   MoreHorizontalIcon,
+  PartyPopperIcon,
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  WalletIcon,
 } from "lucide-react";
 import {
   createContext,
   useContext,
+  useEffect,
+  useMemo,
+  useState,
   type ComponentType,
   type FC,
   type PropsWithChildren,
@@ -106,8 +122,46 @@ export const Thread: FC<ThreadProps> = ({ components = EMPTY_COMPONENTS }) => {
   );
 };
 
+// submitDocument 成功后本次沟通即结束：从消息里解析出文档链接与运营者微信，
+// 用来关闭输入框并展示收尾提示。
+type CompletionInfo = {
+  notionUrl: string | null;
+  operatorWechat: string | null;
+};
+
+const readCompletion = (result: unknown): CompletionInfo | null => {
+  if (typeof result !== "object" || result === null) return null;
+  if (!("success" in result) || result.success !== true) return null;
+  const notionUrl =
+    "notionUrl" in result && typeof result.notionUrl === "string"
+      ? result.notionUrl
+      : null;
+  const operatorWechat =
+    "operatorWechat" in result && typeof result.operatorWechat === "string"
+      ? result.operatorWechat
+      : null;
+  return { notionUrl, operatorWechat };
+};
+
+const findCompletion = (
+  messages: readonly AuiThreadMessage[],
+): CompletionInfo | null => {
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-call" || part.toolName !== "submitDocument")
+        continue;
+      const info = readCompletion(part.result);
+      if (info) return info;
+    }
+  }
+  return null;
+};
+
 const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
+  const messages = useAuiState((s) => s.thread.messages);
+  const completion = useMemo(() => findCompletion(messages), [messages]);
 
   return (
     <ThreadPrimitive.Root
@@ -152,11 +206,19 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
             )}
           >
             <ThreadScrollToBottom />
-            <ThreadFollowupSuggestions />
-            <Composer />
-            <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
-              <ThreadSuggestions />
-            </AuiIf>
+            {completion ? (
+              <ConversationEnded info={completion} />
+            ) : (
+              <>
+                <ThreadFollowupSuggestions />
+                <Composer />
+                <AuiIf
+                  condition={(s) => isNewChatView(s) && s.composer.isEmpty}
+                >
+                  <ThreadSuggestions />
+                </AuiIf>
+              </>
+            )}
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
@@ -181,15 +243,168 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
+type WelcomeValue = {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+};
+
+// 需求被接受后我给到的实打实的东西——引导用户开口的三个理由。
+const WELCOME_VALUES: readonly WelcomeValue[] = [
+  {
+    icon: WalletIcon,
+    title: "$100 AI 调用额度",
+    description: "需求通过后，我掏真金白银的额度，帮你把想法真正跑起来。",
+  },
+  {
+    icon: CalendarClockIcon,
+    title: "7 天一对一沟通",
+    description: "需求接受后 7 天内，随时找我一对一打磨、细化每个细节。",
+  },
+  {
+    icon: FileTextIcon,
+    title: "专业需求文档",
+    description: "边聊边产出，最后交给你一份能直接开工的需求文档。",
+  },
+];
+
+type WelcomeCase = {
+  icon: LucideIcon;
+  role: string;
+  title: string;
+  outcome: string;
+};
+
+// TODO(sonny): 换成真实案例。以下为贴近个人的示例，替换文案即可。
+const WELCOME_CASES: readonly WelcomeCase[] = [
+  {
+    icon: DumbbellIcon,
+    role: "健身教练",
+    title: "训练后放松助手",
+    outcome: "学员练完发一句练了哪个部位，自动生成对应的放松拉伸方案。",
+  },
+  {
+    icon: CoffeeIcon,
+    role: "独立咖啡店",
+    title: "每日备料参谋",
+    outcome: "结合天气和客流，每天开店前生成一份该备多少料的清单。",
+  },
+  {
+    icon: GraduationCapIcon,
+    role: "少儿英语老师",
+    title: "家长周报生成器",
+    outcome: "把零散的课堂记录，一键变成家长看得懂的学习进度周报。",
+  },
+  {
+    icon: HomeIcon,
+    role: "民宿房东",
+    title: "咨询自动应答",
+    outcome: "多平台的常见问题自动回复，只有需要转人工时才提醒我。",
+  },
+];
+
 const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
-      <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-semibold duration-200">
+      <div className="fade-in slide-in-from-bottom-1 animate-in fill-mode-both flex items-center gap-2.5 duration-200">
+        <Avatar size="sm">
+          <AvatarFallback className="bg-primary text-primary-foreground text-[0.65rem] font-semibold">
+            SC
+          </AvatarFallback>
+        </Avatar>
+        <span className="text-muted-foreground text-sm">
+          <span className="text-foreground font-medium">Sonny Chen</span>
+          <span className="text-border mx-1.5">·</span>
+          AI Builder
+        </span>
+      </div>
+
+      <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both mt-4 text-2xl font-semibold duration-200">
         聊聊你的产品想法
       </h1>
       <p className="fade-in slide-in-from-bottom-2 animate-in fill-mode-both text-muted-foreground mt-3 max-w-md text-sm leading-relaxed duration-200">
-        直接把脑海里模糊的需求说出来即可，我会主动追问细节，帮你一步步梳理成一份专业的需求文档。
+        直接把脑海里模糊的需求说出来即可，我会主动追问细节，帮你一步步梳理成一份专业的需求文档。想法一旦被接受，下面这些就都归你。
       </p>
+
+      <div className="fade-in slide-in-from-bottom-2 animate-in fill-mode-both mt-7 grid w-full max-w-2xl grid-cols-1 gap-3 duration-300 sm:grid-cols-3">
+        {WELCOME_VALUES.map((value) => (
+          <div
+            key={value.title}
+            className="border-border/60 bg-muted/20 flex flex-col items-center gap-2 rounded-2xl border p-4 text-center"
+          >
+            <div className="bg-muted text-foreground flex size-9 items-center justify-center rounded-full">
+              <value.icon className="size-4.5" />
+            </div>
+            <span className="text-foreground text-sm font-medium">
+              {value.title}
+            </span>
+            <span className="text-muted-foreground text-xs leading-relaxed">
+              {value.description}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <WelcomeCases />
+    </div>
+  );
+};
+
+const CASE_ROTATE_MS = 4000;
+
+const WelcomeCases: FC = () => {
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActive((prev) => (prev + 1) % WELCOME_CASES.length);
+    }, CASE_ROTATE_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const current = WELCOME_CASES.at(active);
+  if (!current) return null;
+  const CaseIcon = current.icon;
+
+  return (
+    <div className="fade-in slide-in-from-bottom-3 animate-in fill-mode-both mt-8 flex w-full max-w-2xl flex-col items-center duration-500">
+      <span className="text-muted-foreground/70 text-xs tracking-wide">
+        过往帮别人做过的
+      </span>
+      <div className="border-border/60 bg-muted/20 mt-3 flex w-full items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left">
+        <div className="bg-muted text-foreground flex size-10 shrink-0 items-center justify-center rounded-full">
+          <CaseIcon className="size-5" />
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-foreground text-sm font-medium">
+              {current.title}
+            </span>
+            <span className="text-muted-foreground/70 text-xs">
+              给{current.role}
+            </span>
+          </div>
+          <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
+            {current.outcome}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-1.5">
+        {WELCOME_CASES.map((item, index) => (
+          <button
+            key={item.title}
+            type="button"
+            aria-label={`查看案例：${item.title}`}
+            onClick={() => setActive(index)}
+            className={cn(
+              "h-1.5 rounded-full transition-all duration-300",
+              index === active
+                ? "bg-foreground/70 w-4"
+                : "bg-muted-foreground/30 hover:bg-muted-foreground/50 w-1.5",
+            )}
+          />
+        ))}
+      </div>
     </div>
   );
 };
@@ -224,6 +439,49 @@ const Composer: FC = () => {
                       aria-label="Message input"
                     /><ComposerAction /></ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
+  );
+};
+
+// 需求提交且文档生成后展示：关闭输入框，引导查看文档、致谢，并留下微信联系方式。
+const ConversationEnded: FC<{ info: CompletionInfo }> = ({ info }) => {
+  return (
+    <div className="aui-conversation-ended fade-in slide-in-from-bottom-2 animate-in fill-mode-both border-border/60 bg-muted/20 flex flex-col items-center gap-3 rounded-(--composer-radius) border px-5 py-6 text-center duration-300">
+      <div className="bg-muted text-foreground flex size-10 items-center justify-center rounded-full">
+        <PartyPopperIcon className="size-5" />
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-foreground text-sm font-medium">
+          需求已收到，本次沟通就先聊到这儿 🙏
+        </p>
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          谢谢你把想法讲清楚，文档我已经帮你整理好了，随时可以点开看看。
+        </p>
+      </div>
+
+      {info.notionUrl && (
+        <a
+          href={info.notionUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors"
+        >
+          <FileTextIcon className="size-4" />
+          查看我的需求文档
+          <ExternalLinkIcon className="size-3.5" />
+        </a>
+      )}
+
+      {info.operatorWechat && (
+        <p className="text-muted-foreground/80 flex flex-wrap items-center justify-center gap-x-1.5 text-xs">
+          <MessageCircleIcon className="size-3.5 shrink-0" />
+          有任何问题，随时微信找我：
+          <span className="text-foreground font-medium">
+            {info.operatorWechat}
+          </span>
+        </p>
+      )}
+    </div>
   );
 };
 

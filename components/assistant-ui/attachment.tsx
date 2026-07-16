@@ -39,15 +39,15 @@ const useFileSrc = (file: File | undefined) => {
   const [src, setSrc] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!file) {
-      setSrc(undefined);
-      return;
-    }
+    if (!file) return;
 
     const objectUrl = URL.createObjectURL(file);
+    // object URL 只能在 effect 中创建/回收（render 需保持纯函数），此处 setState 是同步外部资源的必要写法
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSrc(objectUrl);
 
     return () => {
+      setSrc(undefined);
       URL.revokeObjectURL(objectUrl);
     };
   }, [file]);

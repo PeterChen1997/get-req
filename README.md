@@ -15,9 +15,41 @@ cp .env.example .env.local
 pnpm db:seed            # 默认创建 HELLO2025
 pnpm db:seed MY_CODE    # 或指定自定义邀请码
 
-# 启动开发服务器
+# 启动开发服务器（端口 3300）
 pnpm dev
 ```
+
+## 端口约定
+
+| 环境 | 端口 | 启动方式 |
+|------|------|----------|
+| 开发（dev） | `3300` | `pnpm dev` |
+| 生产（production） | `3400` | PM2（见下） |
+
+两个端口相互隔离，本地开发与生产可同机并存，不会冲突。
+
+## 生产环境部署（PM2）
+
+```bash
+# 首次：全局安装 pm2（若未安装）
+npm i -g pm2
+
+# 构建 + 用 PM2 启动（端口 3400）
+pnpm pm2:start        # = pnpm build && pm2 start ecosystem.config.js
+
+# 代码更新后热重载（先构建再 reload，零停机）
+pnpm pm2:reload
+
+# 停止 / 查看日志
+pnpm pm2:stop
+pnpm pm2:logs
+
+# 开机自启（可选）
+pm2 startup           # 按提示执行输出的命令
+pm2 save
+```
+
+进程名为 `get-req`，日志输出到 `./logs/`。生产环境的环境变量请写入 `.env.production`（或 `.env.local`），端口已在 `ecosystem.config.js` 中固定为 `3400`。
 
 ## 页面说明
 

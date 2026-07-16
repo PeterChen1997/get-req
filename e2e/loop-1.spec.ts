@@ -57,9 +57,9 @@ test.describe('Issue #1: [REQ-9441420] [REQ-需求收集工具] AI辅助的熟�
     const nameInput = page.locator('#name');
     await expect(nameInput).toBeVisible();
     await expect(page.getByText('联系方式类型')).toBeVisible();
-    await expect(page.getByLabel('微信号')).toBeVisible();
-    await expect(page.getByLabel('手机号')).toBeVisible();
-    await expect(page.getByLabel('邮箱')).toBeVisible();
+    await expect(page.getByRole('radio', { name: '微信号' })).toBeVisible();
+    await expect(page.getByRole('radio', { name: '手机号' })).toBeVisible();
+    await expect(page.getByRole('radio', { name: '邮箱' })).toBeVisible();
     const startButton = page.getByRole('button', { name: '开始需求澄清' });
     await expect(startButton).toBeDisabled();
     await page.screenshot({ path: '.loop/screenshots/loop-1-user-info-form.png', fullPage: true });
@@ -128,7 +128,7 @@ test.describe('Issue #1: [REQ-9441420] [REQ-需求收集工具] AI辅助的熟�
     // === 验证预创建的邀请码存在于列表中 ===
     const codeText = page.locator('code', { hasText: testCode });
     await expect(codeText).toBeVisible();
-    const codeRow = page.locator('div').filter({ has: codeText }).last();
+    const codeRow = page.getByTestId(`invite-row-${testCode}`);
     await expect(codeRow.getByText('已使用 0/3 次')).toBeVisible();
     await expect(codeRow.getByText('有效')).toBeVisible();
     await page.screenshot({ path: '.loop/screenshots/loop-1-admin-code-active.png', fullPage: true });

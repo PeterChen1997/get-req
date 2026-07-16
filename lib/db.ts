@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import fs from "fs";
 import path from "path";
 
 const DB_PATH = path.join(process.cwd(), "data", "get-req.db");
@@ -8,7 +9,6 @@ let _db: Database.Database | null = null;
 function getDb(): Database.Database {
   if (_db) return _db;
 
-  const fs = require("fs");
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -49,6 +49,20 @@ function getDb(): Database.Database {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (submission_id) REFERENCES submissions(id)
     );
+
+    -- 每次对话请求记录一行用量（一行=一轮），SUM 即累计，支撑成本预算与观测。
+    CREATE TABLE IF NOT EXISTS chat_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      submission_id TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      search_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (submission_id) REFERENCES submissions(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_usage_submission ON chat_usage(submission_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_usage_created ON chat_usage(created_at);
   `);
 
   return _db;
@@ -249,6 +263,196 @@ export const db = {
         id
       );
     }
+  },
+
+  // 记录一次对话请求的用量（在 streamText 的 onEnd 回调中调用）
+  recordChatUsage(data: {
+    submissionId: string;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    searchCount: number;
+  }) {
+    const db = getDb();
+    db.prepare(
+      "INSERT INTO chat_usage (submission_id, input_tokens, output_tokens, total_tokens, search_count) VALUES (?, ?, ?, ?, ?)"
+    ).run(
+      data.submissionId,
+      data.inputTokens,
+      data.outputTokens,
+      data.totalTokens,
+      data.searchCount
+    );
+  },
+
+  // 某 submission 的累计用量（会话预算档位判定用）
+  getUsageBySubmission(submissionId: string): {
+    requestCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    searchCount: number;
+  } {
+    const db = getDb();
+    const row = db
+      .prepare<
+        [string],
+        {
+          requestCount: number;
+          inputTokens: number;
+          outputTokens: number;
+          totalTokens: number;
+          searchCount: number;
+        }
+      >(
+        `SELECT
+           COUNT(*) AS requestCount,
+           COALESCE(SUM(input_tokens), 0) AS inputTokens,
+           COALESCE(SUM(output_tokens), 0) AS outputTokens,
+           COALESCE(SUM(total_tokens), 0) AS totalTokens,
+           COALESCE(SUM(search_count), 0) AS searchCount
+         FROM chat_usage WHERE submission_id = ?`
+      )
+      .get(submissionId);
+    return (
+      row ?? {
+        requestCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        searchCount: 0,
+      }
+    );
+  },
+
+  // 某 submission 在指定时间点之后的请求次数（文档生成后追问轮数判定）。
+  // requirements.created_at 与 chat_usage.created_at 同为 datetime('now') UTC 字符串，可直接比较。
+  countUsageSince(submissionId: string, sinceIso: string): number {
+    const db = getDb();
+    const row = db
+      .prepare<[string, string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM chat_usage WHERE submission_id = ? AND created_at > ?"
+      )
+      .get(submissionId, sinceIso);
+    return row?.count ?? 0;
+  },
+
+  // 当日（UTC）全站用量聚合（每日成本熔断用）。日界为 UTC，与 datetime('now') 一致。
+  getTodayGlobalUsage(): {
+    inputTokens: number;
+    outputTokens: number;
+    searchCount: number;
+  } {
+    const db = getDb();
+    const row = db
+      .prepare<
+        [],
+        { inputTokens: number; outputTokens: number; searchCount: number }
+      >(
+        `SELECT
+           COALESCE(SUM(input_tokens), 0) AS inputTokens,
+           COALESCE(SUM(output_tokens), 0) AS outputTokens,
+           COALESCE(SUM(search_count), 0) AS searchCount
+         FROM chat_usage WHERE date(created_at) = date('now')`
+      )
+      .get();
+    return row ?? { inputTokens: 0, outputTokens: 0, searchCount: 0 };
+  },
+
+  // admin 用量统计：今日 + 累计 + 按消耗排序的 top 会话
+  getUsageStats(): {
+    today: {
+      inputTokens: number;
+      outputTokens: number;
+      searchCount: number;
+      requestCount: number;
+    };
+    total: {
+      inputTokens: number;
+      outputTokens: number;
+      searchCount: number;
+      requestCount: number;
+    };
+    topSubmissions: Array<{
+      submissionId: string;
+      name: string;
+      contactInfo: string;
+      inputTokens: number;
+      outputTokens: number;
+      searchCount: number;
+      requestCount: number;
+      lastActiveAt: string;
+    }>;
+  } {
+    const db = getDb();
+    const aggFields = `
+      COUNT(*) AS requestCount,
+      COALESCE(SUM(input_tokens), 0) AS inputTokens,
+      COALESCE(SUM(output_tokens), 0) AS outputTokens,
+      COALESCE(SUM(search_count), 0) AS searchCount`;
+    const emptyAgg = {
+      requestCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      searchCount: 0,
+    };
+    const today =
+      db
+        .prepare<
+          [],
+          {
+            requestCount: number;
+            inputTokens: number;
+            outputTokens: number;
+            searchCount: number;
+          }
+        >(
+          `SELECT ${aggFields} FROM chat_usage WHERE date(created_at) = date('now')`
+        )
+        .get() ?? emptyAgg;
+    const total =
+      db
+        .prepare<
+          [],
+          {
+            requestCount: number;
+            inputTokens: number;
+            outputTokens: number;
+            searchCount: number;
+          }
+        >(`SELECT ${aggFields} FROM chat_usage`)
+        .get() ?? emptyAgg;
+    const topSubmissions = db
+      .prepare<
+        [],
+        {
+          submissionId: string;
+          name: string;
+          contactInfo: string;
+          inputTokens: number;
+          outputTokens: number;
+          searchCount: number;
+          requestCount: number;
+          lastActiveAt: string;
+        }
+      >(
+        `SELECT
+           u.submission_id AS submissionId,
+           s.name AS name,
+           s.contact_info AS contactInfo,
+           COALESCE(SUM(u.input_tokens), 0) AS inputTokens,
+           COALESCE(SUM(u.output_tokens), 0) AS outputTokens,
+           COALESCE(SUM(u.search_count), 0) AS searchCount,
+           COUNT(*) AS requestCount,
+           MAX(u.created_at) AS lastActiveAt
+         FROM chat_usage u
+         JOIN submissions s ON u.submission_id = s.id
+         GROUP BY u.submission_id
+         ORDER BY SUM(u.total_tokens) DESC
+         LIMIT 20`
+      )
+      .all();
+    return { today, total, topSubmissions };
   },
 
   createInviteCode(code: string) {
